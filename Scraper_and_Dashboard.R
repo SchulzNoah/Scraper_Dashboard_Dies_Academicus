@@ -70,19 +70,53 @@ scrape_year <- function(year) {
 }
 
 # Aufstellen des Meta-Datensatzes (Iteration über alle Jahre)
-champs <- map_dfr(2013:2025, scrape_year)
+champs <- map_dfr(2013:2025, scrape_year) %>% 
+  mutate(Name = ifelse(Name == "Sc.", "Kathrin Benkel", Name))
 
 # Extraktion des Geschlechts aus Namen
+unique_names <- tibble(firstname = unique(str_extract(champs$Name, "^\\S+")))
+gender_local <- gender(unique_names$firstname, method = "ssa") %>%
+  select(name, gender_ssa = gender)
+
+# Fehlende Geschlechtszuordnungen
+missing_names <- unique_names %>%
+  left_join(gender_local, by = c("firstname" = "name")) %>%
+  filter(is.na(gender_ssa)) %>%
+  pull(firstname)
+
+# Funktion für API-Abfrage über genderize.io
+get_gender_api <- function(names_vec) {
+  if (length(names_vec) == 0) return(tibble())
+  
+  # API-Abfrage in 10er-Bündeln
+  map_dfr(split(names_vec, ceiling(seq_along(names_vec)/10)), function(batch) {
+    url <- paste0("https://api.genderize.io?name[]=", paste(batch, collapse = "&name[]="))
+    res <- tryCatch(jsonlite::fromJSON(url), error = function(e) return(NULL))
+    if (is.null(res)) return(tibble())
+    return(as_tibble(res) %>% select(name, gender_api = gender))
+  })
+}
+
+# API-Abfrage
+gender_api_results <- get_gender_api(missing_names)
+
+# Manuelle Kodierung von zwei Namen, die nicht zugeordnet werden konnten
+manual_corrections <- tibble(
+  name = c("Kaja-Nina", "Sven-Arvid"), 
+  gender_manual = c("female", "male"))
+
+# Zusammenführen in finalen Datensatz
 champs_final <- champs %>%
   mutate(firstname = str_extract(Name, "^\\S+")) %>%
-  left_join(gender(unique(.$firstname), method = "ssa") %>% select(name, gender), 
-            by = c("firstname" = "name")) %>%
+  left_join(gender_local, by = c("firstname" = "name")) %>%
+  left_join(gender_api_results, by = c("firstname" = "name")) %>%
+  left_join(manual_corrections, by = c("firstname" = "name")) %>% 
   mutate(Geschlecht = case_when(
-    gender == "female" ~ "Weiblich",
-    gender == "male" ~ "Männlich",
-    TRUE ~ "Unbekannt"
-  )) %>%
-  select(-gender)
+    gender_ssa == "female" | gender_api == "female" | gender_manual == "female" ~ "Weiblich",
+    gender_ssa == "male"   | gender_api == "male"   | gender_manual == "male"   ~ "Männlich",
+    TRUE ~ "Unbekannt")) %>%
+  select(Name, Fakultät, Abschluss, Jahr, Geschlecht)
+
 
 # -------------------- UI --------------------
 
@@ -242,7 +276,7 @@ server <- function(input, output, session) {
     p <- ggplot(data, aes(x = factor(.data[[x_var_name]]), fill = .data[[fill_var]])) +
       geom_bar(position = "stack") +
       scale_fill_manual(values = c("Bachelor"="#004B93", "Master"="#009EE3", "Promotion"="#FFCC00", 
-                                   "Weiblich"="#E69F00", "Männlich"="#56B4E9", "Unbekannt"="#aaaaaa")) +
+                                   "Weiblich"="#E69F00", "Männlich"="#56B4E9")) +
       theme_minimal() + 
       labs(y = "Häufigkeit", x = if(x_var_name == "Jahr") "Jahr" else if(x_var_name == "Abschluss") "Abschluss" else "Fakultät", fill = fill_var) +
       theme(plot.title = element_blank())
@@ -332,4 +366,5 @@ server <- function(input, output, session) {
 
 # -------------------- Starten der App --------------------
 shinyApp(ui, server)
+
 
