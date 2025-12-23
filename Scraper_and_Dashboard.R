@@ -1,27 +1,35 @@
+# -------------------- Laden relevanter Packages --------------------
+
+# Klassifikation der Namen
 if (!require("genderdata")) {
-  # Wir nutzen remotes, da es auf dem Server oft stabiler ist
   if (!require("remotes")) install.packages("remotes")
   remotes::install_github("lmullen/genderdata", upgrade = "never")
 }
 
+library(rvest)     # Scraping
+library(shiny)     # Dashboard
+library(plotly)    # Interaktiver Plot
+library(gender)    # Klassifikation der Namen
+library(bslib)     # Verzierungen Dashboard
+library(tidyverse) # Pipes, Data Cleaning
 
-library(rvest)
-library(shiny)
-library(plotly)
-library(gender)
-library(bslib)
-library(tidyverse)
 
-# -------------------- 1. DATEN-SCRAPING & BEREINIGUNG --------------------
+# -------------------- Scraper --------------------
+
 
 scrape_year <- function(year) {
+
+  # Basis URL
   url <- paste0("https://www.uni-due.de/de/absolventenehrung/fak", year, ".php")
+  # Laden der Webseite
   page <- tryCatch(read_html(url), error = function(e) return(NULL))
   if (is.null(page)) return(NULL)
-  
+
+  # Extraktion der Daten
   raw <- page %>% html_node("#content__standard__main") %>% html_text2()
   lines <- str_split(raw, "\n")[[1]] %>% str_trim() %>% discard(~ .x == "")
   
+  # Extraktion der Fakultät
   is_faculty <- function(x) !str_detect(x, ":") && !str_detect(x, "¹|²|³|⁴")
   
   faculty_vec <- character(length(lines))
@@ -30,20 +38,25 @@ scrape_year <- function(year) {
     if (is_faculty(lines[i])) current_faculty <- lines[i]
     faculty_vec[i] <- current_faculty
   }
-  
+
+  # Aufbau Dataframe                 
   df <- tibble(faculty = faculty_vec, line = lines) %>%
     filter(str_detect(line, ":")) %>%
     mutate(
       degree = str_extract(line, "^[^:]+"),
+
+      # Cleanen der Namen (Titel raus)
       name_raw = str_trim(str_remove(line, "^[^:]+:")),
       name_clean = str_remove_all(name_raw, "\\s*\\(.*?\\)"),
       name_clean = str_remove(name_clean, "^(Dipl\\.-[A-Za-zäöüÄÖÜ]+\\.?|B\\.A\\.|B\\.Sc\\.|M\\.A\\.|M\\.Sc\\.|M\\.Ed\\.|M\\.Eng\\.|M\\.Phil\\.|Staatsexamen)\\s*"),
       Name = ifelse(str_detect(name_clean, "\\."), str_remove(name_clean, "^.*\\.\\s+"), name_clean),
+      # Betriebswirtschaft (neue Bezeichnung) und BWL zu einer Fakultät
       Fakultät = case_when(
         str_detect(faculty, "Betriebswirtschaft") ~ "Betriebswirtschaftslehre",
         TRUE ~ str_replace(faculty, "MSM / |Lehramt,\\s*Master of Education", "Lehramt")
       ),
       Fakultät = str_remove(Fakultät, "\\s*\\(Foto\\)"),
+      # alte Studiengangsbezeichnunhen in Master umändern
       Abschluss = case_when(
         str_detect(degree, "Promotion") ~ "Promotion",
         str_detect(degree, "Master|Magister|Diplom|Staatsexamen|Staatsprüfung|LA ") ~ "Master",
@@ -56,8 +69,10 @@ scrape_year <- function(year) {
   return(df)
 }
 
+# Aufstellen des Meta-Datensatzes (Iteration über alle Jahre)
 champs <- map_dfr(2013:2025, scrape_year)
 
+# Extraktion des Geschlechts aus Namen
 champs_final <- champs %>%
   mutate(firstname = str_extract(Name, "^\\S+")) %>%
   left_join(gender(unique(.$firstname), method = "ssa") %>% select(name, gender), 
@@ -69,9 +84,10 @@ champs_final <- champs %>%
   )) %>%
   select(-gender)
 
-# -------------------- 2. USER INTERFACE (UI) --------------------
+# -------------------- UI --------------------
 
 ui <- fluidPage(
+  # Customizing der Page
   theme = bs_theme(version = 5, bootswatch = "flatly"),
   tags$head(
     tags$style(HTML("
@@ -187,11 +203,12 @@ ui <- fluidPage(
   )
 )
 
-# -------------------- 3. SERVER LOGIC --------------------
+# Server
 
 server <- function(input, output, session) {
+  # Auswahl der Fakultäten
   updateSelectizeInput(session, "fakultaeten", choices = sort(unique(champs_final$Fakultät)), server = TRUE)
-  
+
   filtered_data <- reactive({
     df <- champs_final
     if (input$zeitraum == "all") {
@@ -201,11 +218,13 @@ server <- function(input, output, session) {
     }
     df
   })
-  
+
+  # Erstellung interaktiver Barplot
   output$main_plot <- renderPlotly({
     data <- filtered_data()
     req(nrow(data) > 0)
     
+    # Umbenennung der 3 Panel-Modi
     label_modus <- case_when(
       input$modus == "Abschluss" ~ "nach Abschluss",
       input$modus == "Geschlecht" ~ "nach Geschlecht",
@@ -218,7 +237,8 @@ server <- function(input, output, session) {
       if(input$zeitraum == "all" && length(input$fakultaeten) > 0) "Fakultät" else "Jahr"
     }
     fill_var <- if(input$modus == "gender_by_degree") "Geschlecht" else input$modus
-    
+
+    # Erstellung des Plots
     p <- ggplot(data, aes(x = factor(.data[[x_var_name]]), fill = .data[[fill_var]])) +
       geom_bar(position = "stack") +
       scale_fill_manual(values = c("Bachelor"="#004B93", "Master"="#009EE3", "Promotion"="#FFCC00", 
@@ -226,11 +246,13 @@ server <- function(input, output, session) {
       theme_minimal() + 
       labs(y = "Häufigkeit", x = if(x_var_name == "Jahr") "Jahr" else if(x_var_name == "Abschluss") "Abschluss" else "Fakultät", fill = fill_var) +
       theme(plot.title = element_blank())
-    
+
+    # Plot wird mit plotly interaktiv gemacht
     gp <- ggplotly(p, tooltip = c("fill", "count")) %>%
       layout(
         title = list(
           text = full_title,
+          # Einheitlicher Titel
           font = list(family = "Roboto, sans-serif", size = 22, color = "#2c3e50", weight = 500),
           x = 0,
           xanchor = "left",
@@ -239,7 +261,8 @@ server <- function(input, output, session) {
         margin = list(t = 70, l = 0),
         hoverlabel = list(bgcolor = "white")
       )
-    
+
+    # Umbenennung des Hover-Texts
     for (i in 1:length(gp$x$data)) {
       if (!is.null(gp$x$data[[i]]$text)) {
         gp$x$data[[i]]$text <- gsub("count:", "Häufigkeit:", gp$x$data[[i]]$text)
@@ -257,7 +280,9 @@ server <- function(input, output, session) {
     gp
   })
   
-  output$summary_table_html <- renderUI({
+  
+    # Erstellung der interaktiven Tabelle
+    output$summary_table_html <- renderUI({
     data <- filtered_data()
     req(nrow(data) > 0)
     
@@ -270,12 +295,14 @@ server <- function(input, output, session) {
     
     summary_row <- data %>% group_by(!!sym(col_var)) %>% summarise(n = n(), .groups = "drop")
     total_n <- sum(summary_row$n)
-    
+
+    # relative Häufigkeiten im Zeilenumbruch und grauer Schrift unter absoluten Häufigkeiten
     format_cell_html <- function(n, total) {
       pct <- if(total > 0) round((n / total) * 100) else 0
       HTML(paste0("<strong>", n, "</strong><br><small style='color: #888;'>", pct, "%</small>"))
     }
-    
+
+    # Formatierung
     tags$table(class = "table table-hover", style = "background-color: white;",
                tags$thead(tags$tr(lapply(colnames(tab_raw), tags$th))),
                tags$tbody(
@@ -286,6 +313,7 @@ server <- function(input, output, session) {
                      lapply(as.numeric(tab_raw[i, -1]), function(val) tags$td(format_cell_html(val, row_total)))
                    )
                  }),
+                 # Zeile für die gesamten Häufigkeiten erstellen
                  tags$tr(style = "border-top: 3px solid #333; font-weight: bold; background-color: #f8f9fa;",
                          tags$td("Gesamt"),
                          lapply(summary_row$n, function(val) tags$td(format_cell_html(val, total_n)))
@@ -295,4 +323,5 @@ server <- function(input, output, session) {
   })
 }
 
+# -------------------- Starten der App --------------------
 shinyApp(ui, server)
