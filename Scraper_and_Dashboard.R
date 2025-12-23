@@ -289,23 +289,30 @@ server <- function(input, output, session) {
     group_var <- if(input$modus == "gender_by_degree") "Abschluss" else "Fakultät"
     col_var <- if(input$modus == "gender_by_degree") "Geschlecht" else input$modus
     
+    # Haupttabelle (ohne Gesamt) erstellen
     tab_raw <- data %>% group_by(!!sym(group_var), !!sym(col_var)) %>% 
       summarise(n = n(), .groups = "drop") %>%
       pivot_wider(names_from = !!sym(col_var), values_from = n, values_fill = 0)
     
-    summary_row <- data %>% group_by(!!sym(col_var)) %>% summarise(n = n(), .groups = "drop")
-    total_n <- sum(summary_row$n)
-
-    # relative Häufigkeiten im Zeilenumbruch und grauer Schrift unter absoluten Häufigkeiten
+    # Spaltennamen extrahieren
+    col_names <- colnames(tab_raw)[-1]
+    
+    # 3. Summen berechnen (basierend auf Spaltennamen der Tabelle)
+    summary_values <- map_dbl(col_names, function(cn) {
+      sum(tab_raw[[cn]], na.rm = TRUE)
+    })
+    total_n <- sum(summary_values)
+    
     format_cell_html <- function(n, total) {
       pct <- if(total > 0) round((n / total) * 100) else 0
       HTML(paste0("<strong>", n, "</strong><br><small style='color: #888;'>", pct, "%</small>"))
     }
-
+    
     # Formatierung
     tags$table(class = "table table-hover", style = "background-color: white;",
                tags$thead(tags$tr(lapply(colnames(tab_raw), tags$th))),
                tags$tbody(
+                 # Daten-Zeilen
                  lapply(1:nrow(tab_raw), function(i) {
                    row_total <- sum(as.numeric(tab_raw[i, -1]))
                    tags$tr(
@@ -313,10 +320,10 @@ server <- function(input, output, session) {
                      lapply(as.numeric(tab_raw[i, -1]), function(val) tags$td(format_cell_html(val, row_total)))
                    )
                  }),
-                 # Zeile für die gesamten Häufigkeiten erstellen
+                 # Gesamt-Zeile
                  tags$tr(style = "border-top: 3px solid #333; font-weight: bold; background-color: #f8f9fa;",
                          tags$td("Gesamt"),
-                         lapply(summary_row$n, function(val) tags$td(format_cell_html(val, total_n)))
+                         lapply(summary_values, function(val) tags$td(format_cell_html(val, total_n)))
                  )
                )
     )
@@ -325,3 +332,4 @@ server <- function(input, output, session) {
 
 # -------------------- Starten der App --------------------
 shinyApp(ui, server)
+
