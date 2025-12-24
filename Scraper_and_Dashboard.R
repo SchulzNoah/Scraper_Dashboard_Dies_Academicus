@@ -121,6 +121,8 @@ champs_final <- champs %>%
 # -------------------- UI --------------------
 
 ui <- fluidPage(
+  # Titel Webseite
+  title = "Beste Absolventen UDE",
   # Customizing der Page
   theme = bs_theme(version = 5, bootswatch = "flatly"),
   tags$head(
@@ -366,5 +368,6 @@ server <- function(input, output, session) {
 
 # -------------------- Starten der App --------------------
 shinyApp(ui, server)
+
 
 
