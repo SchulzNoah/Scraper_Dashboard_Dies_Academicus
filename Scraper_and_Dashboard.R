@@ -117,7 +117,10 @@ champs_final <- champs %>%
     TRUE ~ "Unbekannt")) %>%
   select(Name, Fakultät, Abschluss, Jahr, Geschlecht)
 
+first_year  <- min(champs_final$Jahr)
+latest_year <- max(champs_final$Jahr)
 
+          
 # -------------------- UI --------------------
 
 ui <- fluidPage(
@@ -190,7 +193,8 @@ ui <- fluidPage(
   div(class = "header-container",
       div(
         div(class = "main-title", "Die besten Absolventen der Universität Duisburg-Essen"),
-        div(class = "sub-title", "Eine Analyse der Gewinner des Dies Academicus von 2013-2026")
+        div(class = "sub-title",
+    paste0("Eine Analyse der Gewinner des Dies Academicus von ", first_year, "-", latest_year))
       ),
       div(class = "uni-logo-box",
           tags$img(src = "https://upload.wikimedia.org/wikipedia/commons/8/86/Uni-duisburg-essen-logo-2022.jpg", 
@@ -212,7 +216,9 @@ ui <- fluidPage(
       
       conditionalPanel(
         condition = "input.zeitraum == 'single'",
-        selectInput("jahr_input", "Jahr wählen:", choices = 2013:2026, selected = 2026)
+        selectInput("jahr_input", "Jahr wählen:",
+            choices  = sort(unique(champs_final$Jahr), decreasing = T),
+            selected = latest_year)
       ),
       
       conditionalPanel(
@@ -266,7 +272,7 @@ server <- function(input, output, session) {
       input$modus == "Geschlecht" ~ "nach Geschlecht",
       input$modus == "gender_by_degree" ~ "Geschlecht nach Abschluss"
     )
-    label_zeit <- if(input$zeitraum == "single") paste("im Jahr", input$jahr_input) else "(2013-2026)"
+    label_zeit <- if (input$zeitraum == "single") paste("im Jahr", input$jahr_input) else paste0("(", first_year, "-", latest_year, ")")
     full_title <- paste("Verteilung der Gewinner", label_modus, label_zeit)
     
     x_var_name <- if(input$modus == "gender_by_degree") "Abschluss" else {
