@@ -190,7 +190,7 @@ ui <- fluidPage(
   div(class = "header-container",
       div(
         div(class = "main-title", "Die besten Absolventen der Universität Duisburg-Essen"),
-        div(class = "sub-title", "Eine Analyse der Gewinner des Dies Academicus von 2013-2025")
+        div(class = "sub-title", "Eine Analyse der Gewinner des Dies Academicus von 2013-2026")
       ),
       div(class = "uni-logo-box",
           tags$img(src = "https://upload.wikimedia.org/wikipedia/commons/8/86/Uni-duisburg-essen-logo-2022.jpg", 
@@ -212,7 +212,7 @@ ui <- fluidPage(
       
       conditionalPanel(
         condition = "input.zeitraum == 'single'",
-        selectInput("jahr_input", "Jahr wählen:", choices = 2013:2025, selected = 2025)
+        selectInput("jahr_input", "Jahr wählen:", choices = 2013:2026, selected = 2026)
       ),
       
       conditionalPanel(
@@ -266,7 +266,7 @@ server <- function(input, output, session) {
       input$modus == "Geschlecht" ~ "nach Geschlecht",
       input$modus == "gender_by_degree" ~ "Geschlecht nach Abschluss"
     )
-    label_zeit <- if(input$zeitraum == "single") paste("im Jahr", input$jahr_input) else "(2013-2025)"
+    label_zeit <- if(input$zeitraum == "single") paste("im Jahr", input$jahr_input) else "(2013-2026)"
     full_title <- paste("Verteilung der Gewinner", label_modus, label_zeit)
     
     x_var_name <- if(input$modus == "gender_by_degree") "Abschluss" else {
