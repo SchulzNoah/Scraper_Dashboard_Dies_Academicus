@@ -70,7 +70,7 @@ scrape_year <- function(year) {
 }
 
 # Aufstellen des Meta-Datensatzes (Iteration über alle Jahre)
-champs <- map_dfr(2013:2025, scrape_year) %>% 
+champs <- map_dfr(2013:year(Sys.Date()), scrape_year) %>% 
   mutate(Name = ifelse(Name == "Sc.", "Kathrin Benkel", Name))
 
 # Extraktion des Geschlechts aus Namen
